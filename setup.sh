@@ -343,7 +343,19 @@ BASHRC_EOF
     ok "~/.bashrc written."
 fi
 
-# ── 3. Done ───────────────────────────────────────
+# ── 3. Git config ─────────────────────────────────
+GIT_NAME="Ho Cheuk Hai Jason"
+GIT_EMAIL="50993239+jasonho1308@users.noreply.github.com"
+
+if [[ -f "$HOME/.gitconfig" ]]; then
+    ok "~/.gitconfig already exists, skipping."
+else
+    git config --global user.name "$GIT_NAME"
+    git config --global user.email "$GIT_EMAIL"
+    ok "Git user configured: $GIT_NAME <$GIT_EMAIL>"
+fi
+
+# ── 4. Done ───────────────────────────────────────
 echo
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  Setup complete!${NC}"
