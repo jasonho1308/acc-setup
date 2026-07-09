@@ -32,11 +32,11 @@ fi
 if command -v zsh &>/dev/null; then
     SHELL_TYPE="zsh"
     CURRENT_SHELL="$(basename "${SHELL:-$0}")"
-    info "zsh detected — will set up oh-my-zsh + zsh2000 theme"
+    info "zsh detected — will set up oh-my-zsh + agnoster-timestamp-newline theme"
 elif [[ "${BASH_VERSION:-}" ]]; then
     SHELL_TYPE="bash"
     CURRENT_SHELL="bash"
-    info "zsh not found, running bash — will set up oh-my-bash + powerline theme"
+    info "zsh not found, running bash — will set up oh-my-bash + agnoster theme"
 else
     err "Neither zsh nor bash found. Something is wrong."
 fi
@@ -46,10 +46,10 @@ echo
 echo " This will:"
 if [[ "$SHELL_TYPE" == "zsh" ]]; then
     echo "   • Install oh-my-zsh"
-    echo "   • Install zsh2000 theme"
+    echo "   • Install agnoster-timestamp-newline theme"
 else
     echo "   • Install oh-my-bash"
-    echo "   • Set a powerline/bash2000 theme"
+    echo "   • Set agnoster theme"
 fi
 echo "   • Install pixi"
 echo "   • Write shell config (~/.${SHELL_TYPE}rc)"
@@ -85,32 +85,32 @@ if [[ "$SHELL_TYPE" == "zsh" ]]; then
         ok "oh-my-zsh installed."
     fi
 
-    # ── 2b. zsh2000 theme ──────────────────────────
+    # ── 2b. agnoster-timestamp-newline theme ───────
     THEME_DIR="$HOME/.oh-my-zsh/custom/themes"
     mkdir -p "$THEME_DIR"
-    cat > "$THEME_DIR/zsh2000.zsh-theme" << 'THEME_EOF'
-CURRENT_BG='NONE'
-SEGMENT_SEPARATOR_RIGHT='\ue0b2'
-SEGMENT_SEPARATOR_LEFT='\ue0b0'
+    cat > "$THEME_DIR/agnoster-timestamp-newline.zsh-theme" << 'THEME_EOF'
+# agnoster's Theme - https://gist.github.com/3712874
+# A Powerline-inspired theme for ZSH
+#
+# Timestamp + newline variant by DylanDelobel
+# https://github.com/DylanDelobel/agnoster-timestamp-newline-zsh-theme
+#
+# Requires a Powerline-patched font:
+# https://github.com/powerline/fonts
 
-ZSH_THEME_GIT_PROMPT_UNTRACKED=" ✭"
-ZSH_THEME_GIT_PROMPT_STASHED=' ⚑'
-ZSH_THEME_GIT_PROMPT_DIVERGED=' ⚡'
-ZSH_THEME_GIT_PROMPT_ADDED=" ✚"
-ZSH_THEME_GIT_PROMPT_MODIFIED=" ✹"
-ZSH_THEME_GIT_PROMPT_DELETED=" ✖"
-ZSH_THEME_GIT_PROMPT_RENAMED=" ➜"
-ZSH_THEME_GIT_PROMPT_UNMERGED=" ═"
-ZSH_THEME_GIT_PROMPT_AHEAD=' ⬆'
-ZSH_THEME_GIT_PROMPT_BEHIND=' ⬇'
-ZSH_THEME_GIT_PROMPT_DIRTY=' ±'
+CURRENT_BG='NONE'
+
+() {
+  local LC_ALL="" LC_CTYPE="en_US.UTF-8"
+  SEGMENT_SEPARATOR=$'\ue0b0'
+}
 
 prompt_segment() {
   local bg fg
   [[ -n $1 ]] && bg="%K{$1}" || bg="%k"
   [[ -n $2 ]] && fg="%F{$2}" || fg="%f"
   if [[ $CURRENT_BG != 'NONE' && $1 != $CURRENT_BG ]]; then
-    echo -n " %{$bg%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR_LEFT%{$fg%} "
+    echo -n " %{$bg%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR%{$fg%} "
   else
     echo -n "%{$bg%}%{$fg%} "
   fi
@@ -118,18 +118,9 @@ prompt_segment() {
   [[ -n $3 ]] && echo -n $3
 }
 
-prompt_segment_right() {
-  local bg fg
-  [[ -n $1 ]] && bg="%K{$1}" || bg="%k"
-  [[ -n $2 ]] && fg="%F{$2}" || fg="%f"
-  echo -n "%K{$CURRENT_BG}%F{$1}$SEGMENT_SEPARATOR_RIGHT%{$bg%}%{$fg%} "
-  CURRENT_BG=$1
-  [[ -n $3 ]] && echo -n $3
-}
-
 prompt_end() {
   if [[ -n $CURRENT_BG ]]; then
-    echo -n " %{%k%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR_LEFT"
+    echo -n " %{%k%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR"
   else
     echo -n "%{%k%}"
   fi
@@ -137,105 +128,131 @@ prompt_end() {
   CURRENT_BG=''
 }
 
-prompt_user_hostname() {
-  local user=`whoami`
-  if [ -n "$SSH_CLIENT" ]; then
-    prompt_segment black default "%(!.%{%F{yellow}%}.)$user@%m"
+prompt_context() {
+  if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
+    prompt_segment black default "%(!.%{%F{yellow}%}.)$USER@%m"
   fi
 }
 
 prompt_git() {
-  local ref dirty
+  local PL_BRANCH_CHAR
+  () {
+    local LC_ALL="" LC_CTYPE="en_US.UTF-8"
+    PL_BRANCH_CHAR=$'\ue0a0'
+  }
+  local ref dirty mode repo_path
+  repo_path=$(git rev-parse --git-dir 2>/dev/null)
+
   if $(git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
     dirty=$(parse_git_dirty)
-    ref=$(git symbolic-ref HEAD 2> /dev/null)
+    ref=$(git symbolic-ref HEAD 2> /dev/null) || ref="➦ $(git rev-parse --short HEAD 2> /dev/null)"
     if [[ -n $dirty ]]; then
-      prompt_segment magenta black
+      prompt_segment yellow black
     else
       prompt_segment green black
     fi
-    if [ "$ZSH_2000_DISABLE_GIT_STATUS" != "true" ];then
-      echo -n "\ue0a0 ${ref/refs\/heads\//}$dirty"$(git_prompt_status)
+
+    if [[ -e "${repo_path}/BISECT_LOG" ]]; then
+      mode=" <B>"
+    elif [[ -e "${repo_path}/MERGE_HEAD" ]]; then
+      mode=" >M<"
+    elif [[ -e "${repo_path}/rebase" || -e "${repo_path}/rebase-apply" || -e "${repo_path}/rebase-merge" || -e "${repo_path}/../.dotest" ]]; then
+      mode=" >R>"
+    fi
+
+    setopt promptsubst
+    autoload -Uz vcs_info
+    zstyle ':vcs_info:*' enable git
+    zstyle ':vcs_info:*' get-revision true
+    zstyle ':vcs_info:*' check-for-changes true
+    zstyle ':vcs_info:*' stagedstr '✚'
+    zstyle ':vcs_info:*' unstagedstr '●'
+    zstyle ':vcs_info:*' formats ' %u%c'
+    zstyle ':vcs_info:*' actionformats ' %u%c'
+    vcs_info
+    echo -n "${ref/refs\/heads\//$PL_BRANCH_CHAR }${vcs_info_msg_0_%% }${mode}"
+  fi
+}
+
+prompt_hg() {
+  local rev status
+  if $(hg id >/dev/null 2>&1); then
+    if $(hg prompt >/dev/null 2>&1); then
+      if [[ $(hg prompt "{status|unknown}") = "?" ]]; then
+        prompt_segment red white; st='±'
+      elif [[ -n $(hg prompt "{status|modified}") ]]; then
+        prompt_segment yellow black; st='±'
+      else
+        prompt_segment green black
+      fi
+      echo -n $(hg prompt "☿ {rev}@{branch}") $st
     else
-      echo -n "\ue0a0 ${ref/refs\/heads\//}$dirty"
+      st=""
+      rev=$(hg id -n 2>/dev/null | sed 's/[^-0-9]//g')
+      branch=$(hg id -b 2>/dev/null)
+      if $(hg st | grep -q "^\?"); then
+        prompt_segment red black; st='±'
+      elif $(hg st | grep -q "^[MA]"); then
+        prompt_segment yellow black; st='±'
+      else
+        prompt_segment green black
+      fi
+      echo -n "☿ $rev@$branch" $st
     fi
   fi
 }
 
 prompt_dir() {
-  prompt_segment blue white '%~'
+  prompt_segment blue black '%~'
+}
+
+prompt_virtualenv() {
+  local virtualenv_path="$VIRTUAL_ENV"
+  if [[ -n $virtualenv_path && -n $VIRTUAL_ENV_DISABLE_PROMPT ]]; then
+    prompt_segment blue black "(`basename $virtualenv_path`)"
+  fi
 }
 
 prompt_status() {
   local symbols
   symbols=()
-  [[ $RETVAL -ne 0 ]] && symbols+="%{%F{yellow}%}✖"
+  [[ $RETVAL -ne 0 ]] && symbols+="%{%F{red}%}✘"
   [[ $UID -eq 0 ]] && symbols+="%{%F{yellow}%}⚡"
   [[ $(jobs -l | wc -l) -gt 0 ]] && symbols+="%{%F{cyan}%}⚙"
   [[ -n "$symbols" ]] && prompt_segment black default "$symbols"
 }
 
-prompt_time() {
-  prompt_segment_right white black '%D{%H:%M:%S} '
+prompt_newline() {
+  if [[ -n $CURRENT_BG ]]; then
+    echo -n " %{%k%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR
+%{%k%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR"
+  else
+    echo -n " %{%k%}"
+  fi
+  echo -n " %{%f%}"
+  CURRENT_BG=''
+}
+
+prompt_timestamp() {
+  prompt_segment white black '%*'
 }
 
 build_prompt() {
-  if [ "$ZSH_2000_DISABLE_STATUS" != 'true' ];then
-    RETVAL=$?
-    prompt_status
-  fi
-  prompt_user_hostname
+  RETVAL=$?
+  prompt_status
+  prompt_virtualenv
+  prompt_context
+  prompt_timestamp
   prompt_dir
   prompt_git
+  prompt_hg
+  prompt_newline
   prompt_end
 }
 
-ZSH_THEME_GIT_TIME_SINCE_COMMIT_SHORT="%{$fg[green]%}"
-ZSH_THEME_GIT_TIME_SHORT_COMMIT_MEDIUM="%{$fg[yellow]%}"
-ZSH_THEME_GIT_TIME_SINCE_COMMIT_LONG="%{$fg[red]%}"
-ZSH_THEME_GIT_TIME_SINCE_COMMIT_NEUTRAL="%{$fg[cyan]%}"
-
-function git_time_since_commit() {
-    if git rev-parse --git-dir > /dev/null 2>&1; then
-        if [[ $(git log 2>&1 > /dev/null | grep -c "^fatal: bad default revision") == 0 ]]; then
-            last_commit=`git log --pretty=format:'%at' -1 2> /dev/null`
-            now=`date +%s`
-            seconds_since_last_commit=$((now-last_commit))
-            MINUTES=$((seconds_since_last_commit / 60))
-            HOURS=$((seconds_since_last_commit/3600))
-            DAYS=$((seconds_since_last_commit / 86400))
-            SUB_HOURS=$((HOURS % 24))
-            SUB_MINUTES=$((MINUTES % 60))
-            if [[ -n $(git status -s 2> /dev/null) ]]; then
-                if [ "$MINUTES" -gt 30 ]; then
-                    COLOR="$ZSH_THEME_GIT_TIME_SINCE_COMMIT_LONG"
-                elif [ "$MINUTES" -gt 10 ]; then
-                    COLOR="$ZSH_THEME_GIT_TIME_SHORT_COMMIT_MEDIUM"
-                else
-                    COLOR="$ZSH_THEME_GIT_TIME_SINCE_COMMIT_SHORT"
-                fi
-            else
-                COLOR="$ZSH_THEME_GIT_TIME_SINCE_COMMIT_NEUTRAL"
-            fi
-            if [ "$HOURS" -gt 24 ]; then
-                echo "($COLOR${DAYS}d${SUB_HOURS}h${SUB_MINUTES}m%{$reset_color%})"
-            elif [ "$MINUTES" -gt 60 ]; then
-                echo "($COLOR${HOURS}h${SUB_MINUTES}m%{$reset_color%})"
-            else
-                echo "($COLOR${MINUTES}m%{$reset_color%})"
-            fi
-        fi
-    fi
-}
-
-build_rprompt() {
-  prompt_time
-}
-
-PROMPT='%{%f%b%k%}$(build_prompt) '
-RPROMPT='%{%f%b%k%}$(git_time_since_commit)$(build_rprompt)'
+PROMPT='%{%f%b%k%}$(build_prompt)'
 THEME_EOF
-    ok "zsh2000 theme installed."
+    ok "agnoster-timestamp-newline theme installed."
 
     # ── 2c. .zshrc ─────────────────────────────────
     # Back up if not ours
@@ -247,7 +264,7 @@ THEME_EOF
     cat > "$HOME/.zshrc" << 'ZSHRC_EOF'
 # ── Jason's zshrc ────────────────────────────────
 export ZSH="$HOME/.oh-my-zsh"
-ZSH_THEME="zsh2000"
+ZSH_THEME="agnoster-timestamp-newline"
 plugins=(git)
 source "$ZSH/oh-my-zsh.sh"
 
@@ -287,11 +304,10 @@ else
         ok "oh-my-bash installed."
     fi
 
-    # ── 2b. bash2000 theme ────────────────────────
-    # oh-my-bash uses a different theme engine, but
-    # "powerline" theme is the closest built-in.
-    # We configure it in .bashrc.
-    ok "oh-my-bash 'powerline' theme will be used (closest to zsh2000)."
+    # ── 2b. agnoster theme ────────────────────────
+    # oh-my-bash has a built-in agnoster theme,
+    # same look as the zsh version. Requires powerline font.
+    ok "oh-my-bash 'agnoster' theme will be used."
 
     # ── 2c. .bashrc ───────────────────────────────
     if [[ -f "$HOME/.bashrc" ]] && ! grep -q "# Jason's" "$HOME/.bashrc" 2>/dev/null; then
@@ -302,7 +318,7 @@ else
     cat > "$HOME/.bashrc" << 'BASHRC_EOF'
 # ── Jason's bashrc ───────────────────────────────
 export OSH="$HOME/.oh-my-bash"
-OSH_THEME="powerline"
+OSH_THEME="agnoster"
 source "$OSH/oh-my-bash.sh"
 
 # pixi
@@ -336,6 +352,14 @@ echo
 echo "  Shell:      ${SHELL_TYPE}"
 echo "  Config:     ~/.${SHELL_TYPE}rc"
 echo "  pixi:       $HOME/.pixi/bin/pixi"
+if [[ "$SHELL_TYPE" == "zsh" ]]; then
+    echo "  Theme:      agnoster-timestamp-newline"
+else
+    echo "  Theme:      agnoster"
+fi
+echo
+echo "  ⚠ Agnoster needs a Powerline-patched font:"
+echo "     https://github.com/powerline/fonts"
 echo
 echo "  To see changes now:"
 if [[ "$SHELL_TYPE" == "zsh" ]]; then
