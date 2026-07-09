@@ -347,7 +347,9 @@ fi
 GIT_NAME="Ho Cheuk Hai Jason"
 GIT_EMAIL="50993239+jasonho1308@users.noreply.github.com"
 
-if [[ -f "$HOME/.gitconfig" ]]; then
+if ! command -v git &>/dev/null; then
+    warn "git not found — install Xcode CLT (xcode-select --install) or 'sudo apt install git', then re-run for git config."
+elif [[ -f "$HOME/.gitconfig" ]]; then
     ok "~/.gitconfig already exists, skipping."
 else
     git config --global user.name "$GIT_NAME"
