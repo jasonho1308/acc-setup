@@ -36,7 +36,7 @@ if command -v zsh &>/dev/null; then
 elif [[ "${BASH_VERSION:-}" ]]; then
     SHELL_TYPE="bash"
     CURRENT_SHELL="bash"
-    info "zsh not found, running bash — will set up oh-my-bash + agnoster theme"
+    info "zsh not found, running bash — will set up oh-my-bash + agnoster-timestamp-newline theme"
 else
     err "Neither zsh nor bash found. Something is wrong."
 fi
@@ -49,7 +49,7 @@ if [[ "$SHELL_TYPE" == "zsh" ]]; then
     echo "   • Install agnoster-timestamp-newline theme"
 else
     echo "   • Install oh-my-bash"
-    echo "   • Set agnoster theme"
+    echo "   • Install agnoster-timestamp-newline theme"
 fi
 echo "   • Install pixi"
 echo "   • Write shell config (~/.${SHELL_TYPE}rc)"
@@ -99,6 +99,9 @@ if [[ "$SHELL_TYPE" == "zsh" ]]; then
 # https://github.com/powerline/fonts
 
 CURRENT_BG='NONE'
+typeset -g _JASON_AGNOSTER_START_TIME=''
+typeset -g _JASON_AGNOSTER_DURATION=''
+typeset -gi _JASON_AGNOSTER_RETVAL=0
 
 () {
   local LC_ALL="" LC_CTYPE="en_US.UTF-8"
@@ -233,12 +236,49 @@ prompt_newline() {
   CURRENT_BG=''
 }
 
+_jason_agnoster_format_duration() {
+  local -i total_seconds=$1
+  local -i hours=$(( total_seconds / 3600 ))
+  local -i minutes=$(( (total_seconds % 3600) / 60 ))
+  local -i seconds=$(( total_seconds % 60 ))
+
+  REPLY=''
+  (( hours > 0 )) && REPLY+="${hours}h"
+  (( minutes > 0 )) && REPLY+="${REPLY:+ }${minutes}m"
+  (( seconds > 0 || total_seconds < 60 )) && REPLY+="${REPLY:+ }${seconds}s"
+}
+
+_jason_agnoster_preexec() {
+  _JASON_AGNOSTER_START_TIME=$EPOCHREALTIME
+}
+
+_jason_agnoster_precmd() {
+  local retval=$?
+  local -F elapsed
+  local -i elapsed_seconds
+
+  _JASON_AGNOSTER_RETVAL=$retval
+  _JASON_AGNOSTER_DURATION=''
+  if [[ -n $_JASON_AGNOSTER_START_TIME ]]; then
+    elapsed=$(( EPOCHREALTIME - _JASON_AGNOSTER_START_TIME ))
+    if (( elapsed >= 1.0 )); then
+      elapsed_seconds=${elapsed%.*}
+      _jason_agnoster_format_duration $elapsed_seconds
+      _JASON_AGNOSTER_DURATION=$REPLY
+    fi
+  fi
+  _JASON_AGNOSTER_START_TIME=''
+}
+
 prompt_timestamp() {
-  prompt_segment white black '%*'
+  local timestamp
+  timestamp=$(date +%H:%M:%S)
+  [[ -n $_JASON_AGNOSTER_DURATION ]] && timestamp+=" · took $_JASON_AGNOSTER_DURATION"
+  prompt_segment white black "$timestamp"
 }
 
 build_prompt() {
-  RETVAL=$?
+  RETVAL=$_JASON_AGNOSTER_RETVAL
   prompt_status
   prompt_virtualenv
   prompt_context
@@ -251,6 +291,13 @@ build_prompt() {
 }
 
 PROMPT='%{%f%b%k%}$(build_prompt)'
+
+zmodload zsh/datetime
+autoload -Uz add-zsh-hook
+add-zsh-hook -d preexec _jason_agnoster_preexec 2>/dev/null
+add-zsh-hook -d precmd _jason_agnoster_precmd 2>/dev/null
+add-zsh-hook preexec _jason_agnoster_preexec
+add-zsh-hook precmd _jason_agnoster_precmd
 THEME_EOF
     ok "agnoster-timestamp-newline theme installed."
 
@@ -304,10 +351,141 @@ else
         ok "oh-my-bash installed."
     fi
 
-    # ── 2b. agnoster theme ────────────────────────
-    # oh-my-bash has a built-in agnoster theme,
-    # same look as the zsh version. Requires powerline font.
-    ok "oh-my-bash 'agnoster' theme will be used."
+    # ── 2b. agnoster-timestamp-newline theme ──────
+    BASH_THEME_DIR="$HOME/.oh-my-bash/custom/themes/agnoster-timestamp-newline"
+    mkdir -p "$BASH_THEME_DIR"
+    cat > "$BASH_THEME_DIR/agnoster-timestamp-newline.theme.sh" << 'BASH_THEME_EOF'
+#! bash oh-my-bash.module
+
+# Start with Oh My Bash's Agnoster drawing and VCS implementation, then
+# override only the components needed to match the Mac Zsh prompt.
+source "$OSH/themes/agnoster/agnoster.theme.sh"
+
+if [[ ! ${bash_preexec_imported:-${__bp_imported:-}} ]]; then
+  source "$OSH/tools/bash-preexec.sh"
+fi
+
+_JASON_AGNOSTER_START_NS=''
+_JASON_AGNOSTER_DURATION=''
+_JASON_AGNOSTER_RETVAL=0
+
+function _jason_agnoster_now_ns {
+  local now seconds
+  now=$(date +%s%N 2>/dev/null)
+  if [[ $now =~ ^[0-9]+$ && ${#now} -gt 10 ]]; then
+    _JASON_AGNOSTER_NOW_NS=$now
+  else
+    seconds=$(date +%s)
+    _JASON_AGNOSTER_NOW_NS=$((seconds * 1000000000))
+  fi
+}
+
+function _jason_agnoster_format_duration {
+  local total_seconds=$1
+  local hours=$((total_seconds / 3600))
+  local minutes=$(((total_seconds % 3600) / 60))
+  local seconds=$((total_seconds % 60))
+
+  _JASON_AGNOSTER_DURATION=''
+  ((hours > 0)) && _JASON_AGNOSTER_DURATION="${hours}h"
+  ((minutes > 0)) && _JASON_AGNOSTER_DURATION+="${_JASON_AGNOSTER_DURATION:+ }${minutes}m"
+  ((seconds > 0 || total_seconds < 60)) && _JASON_AGNOSTER_DURATION+="${_JASON_AGNOSTER_DURATION:+ }${seconds}s"
+}
+
+function _jason_agnoster_preexec {
+  _jason_agnoster_now_ns
+  _JASON_AGNOSTER_START_NS=$_JASON_AGNOSTER_NOW_NS
+}
+
+function _jason_agnoster_precmd {
+  local retval=$?
+  local elapsed_ns elapsed_seconds
+
+  _JASON_AGNOSTER_RETVAL=$retval
+  _JASON_AGNOSTER_DURATION=''
+  if [[ -n $_JASON_AGNOSTER_START_NS ]]; then
+    _jason_agnoster_now_ns
+    elapsed_ns=$((_JASON_AGNOSTER_NOW_NS - _JASON_AGNOSTER_START_NS))
+    if ((elapsed_ns >= 1000000000)); then
+      elapsed_seconds=$((elapsed_ns / 1000000000))
+      _jason_agnoster_format_duration "$elapsed_seconds"
+    fi
+  fi
+  _JASON_AGNOSTER_START_NS=''
+  return 0
+}
+
+function _jason_agnoster_has_hook {
+  local needle=$1 hook
+  shift
+  for hook in "$@"; do
+    [[ $hook == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+_jason_agnoster_has_hook _jason_agnoster_preexec "${preexec_functions[@]}" ||
+  preexec_functions+=(_jason_agnoster_preexec)
+_jason_agnoster_has_hook _jason_agnoster_precmd "${precmd_functions[@]}" ||
+  precmd_functions+=(_jason_agnoster_precmd)
+
+function prompt_virtualenv {
+  local virtualenv_path=${VIRTUAL_ENV:-}
+  if [[ -n $virtualenv_path && -n ${VIRTUAL_ENV_DISABLE_PROMPT:-} ]]; then
+    prompt_segment blue black "($(basename "$virtualenv_path"))"
+  fi
+}
+
+function prompt_timestamp {
+  local timestamp
+  timestamp=$(date +%H:%M:%S)
+  [[ -n $_JASON_AGNOSTER_DURATION ]] && timestamp+=" · took $_JASON_AGNOSTER_DURATION"
+  prompt_segment white black "$timestamp"
+}
+
+function prompt_newline {
+  local REPLY
+  if [[ -n $CURRENT_BG ]]; then
+    local -a codes=(0)
+    _omb_theme_agnoster_fg_color "$CURRENT_BG"
+    [[ $REPLY ]] && codes+=("$REPLY")
+    _omb_theme_agnoster_ansi 'codes[@]'
+    PR="$PR $REPLY$SEGMENT_SEPARATOR"$'\n'"$REPLY$SEGMENT_SEPARATOR"
+  else
+    _omb_theme_agnoster_ansi_single 0
+    PR="$PR $REPLY"
+  fi
+
+  _omb_theme_agnoster_ansi_single 0
+  PR="$PR $REPLY "
+  CURRENT_BG=''
+}
+
+function build_prompt {
+  prompt_status
+  prompt_virtualenv
+  [[ -z ${AG_NO_CONTEXT+x} ]] && prompt_context
+  prompt_timestamp
+  prompt_dir
+  prompt_git
+  prompt_hg
+  prompt_newline
+  prompt_end
+}
+
+function _omb_theme_PROMPT_COMMAND {
+  local RETVAL=${_JASON_AGNOSTER_RETVAL:-$?}
+  local PRIGHT=''
+  local CURRENT_BG=NONE
+  local REPLY
+  _omb_theme_agnoster_text_effect reset
+  _omb_theme_agnoster_ansi_single "$REPLY"
+  local PR=$REPLY
+  build_prompt
+  PS1=$PR
+}
+BASH_THEME_EOF
+    ok "agnoster-timestamp-newline theme installed."
 
     # ── 2c. .bashrc ───────────────────────────────
     if [[ -f "$HOME/.bashrc" ]] && ! grep -q "# Jason's" "$HOME/.bashrc" 2>/dev/null; then
@@ -318,7 +496,8 @@ else
     cat > "$HOME/.bashrc" << 'BASHRC_EOF'
 # ── Jason's bashrc ───────────────────────────────
 export OSH="$HOME/.oh-my-bash"
-OSH_THEME="agnoster"
+OSH_THEME="agnoster-timestamp-newline"
+plugins=(git bash-preexec)
 source "$OSH/oh-my-bash.sh"
 
 # pixi
@@ -343,7 +522,32 @@ BASHRC_EOF
     ok "~/.bashrc written."
 fi
 
-# ── 3. Git config ─────────────────────────────────
+# ── 3. Wakapi ─────────────────────────────────────
+echo
+read -rp "Configure Wakapi tracking? [y/N] " WAKAPI_REPLY
+if [[ "$WAKAPI_REPLY" =~ ^[Yy]$ ]]; then
+    read -rp "Wakapi API URL (e.g. https://wakapi.example.com/api): " WAKAPI_URL
+    read -rsp "Wakapi API key (hidden): " WAKAPI_API_KEY
+    echo
+
+    if [[ -z "$WAKAPI_URL" || -z "$WAKAPI_API_KEY" ]]; then
+        warn "The Wakapi URL and API key are required — leaving ~/.wakatime.cfg unchanged."
+    else
+        cat > "$HOME/.wakatime.cfg" << WAKATIME_EOF
+[settings]
+api_url = $WAKAPI_URL
+api_key = $WAKAPI_API_KEY
+WAKATIME_EOF
+        chmod 600 "$HOME/.wakatime.cfg"
+        ok "WakaTime client configured to submit to Wakapi only."
+    fi
+
+    unset WAKAPI_URL WAKAPI_API_KEY
+else
+    info "Skipping Wakapi configuration."
+fi
+
+# ── 4. Git config ─────────────────────────────────
 GIT_NAME="Ho Cheuk Hai Jason"
 GIT_EMAIL="50993239+jasonho1308@users.noreply.github.com"
 
@@ -357,7 +561,7 @@ else
     ok "Git user configured: $GIT_NAME <$GIT_EMAIL>"
 fi
 
-# ── 4. Done ───────────────────────────────────────
+# ── 5. Done ───────────────────────────────────────
 echo
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  Setup complete!${NC}"
@@ -366,11 +570,7 @@ echo
 echo "  Shell:      ${SHELL_TYPE}"
 echo "  Config:     ~/.${SHELL_TYPE}rc"
 echo "  pixi:       $HOME/.pixi/bin/pixi"
-if [[ "$SHELL_TYPE" == "zsh" ]]; then
-    echo "  Theme:      agnoster-timestamp-newline"
-else
-    echo "  Theme:      agnoster"
-fi
+echo "  Theme:      agnoster-timestamp-newline"
 echo
 echo "  ⚠ Agnoster needs a Powerline-patched font:"
 echo "     https://github.com/powerline/fonts"
