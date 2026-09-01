@@ -52,6 +52,7 @@ else
     echo "   • Install agnoster-timestamp-newline theme"
 fi
 echo "   • Install pixi"
+echo "   • Install the latest Hack Nerd Font (Linux)"
 echo "   • Write shell config (~/.${SHELL_TYPE}rc)"
 echo "   • NO sudo, NO packages, NO chsh"
 echo "============================================"
@@ -69,6 +70,50 @@ else
 fi
 # Ensure pixi is available right now
 export PATH="$HOME/.pixi/bin:$PATH"
+
+# ── 1.5. Hack Nerd Font (required on Linux) ───────
+if [[ "$(uname -s)" == "Linux" ]]; then
+    NERD_FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip"
+    NERD_FONT_DIR="$HOME/.local/share/fonts/Hack"
+    NERD_FONT_TMP_DIR="$(mktemp -d 2>/dev/null || true)"
+
+    if [[ -z "$NERD_FONT_TMP_DIR" ]]; then
+        warn "Could not create a temporary directory — skipping Hack Nerd Font installation."
+    elif ! command -v unzip &>/dev/null && ! command -v bsdtar &>/dev/null; then
+        warn "Need unzip or bsdtar to install Hack Nerd Font — skipping it."
+        rm -rf -- "$NERD_FONT_TMP_DIR"
+    else
+        NERD_FONT_ARCHIVE="$NERD_FONT_TMP_DIR/Hack.zip"
+        info "Installing the latest Hack Nerd Font..."
+
+        if ! $DOWNLOAD "$NERD_FONT_URL" > "$NERD_FONT_ARCHIVE"; then
+            warn "Hack Nerd Font download failed — continuing without changing installed fonts."
+        elif ! mkdir -p "$NERD_FONT_DIR"; then
+            warn "Could not create $NERD_FONT_DIR — continuing without changing installed fonts."
+        elif command -v unzip &>/dev/null; then
+            if unzip -q -o "$NERD_FONT_ARCHIVE" '*.ttf' -d "$NERD_FONT_DIR"; then
+                ok "Latest Hack Nerd Font installed in $NERD_FONT_DIR."
+            else
+                warn "Hack Nerd Font extraction failed — continuing setup."
+            fi
+        elif bsdtar -xf "$NERD_FONT_ARCHIVE" -C "$NERD_FONT_DIR"; then
+            ok "Latest Hack Nerd Font installed in $NERD_FONT_DIR."
+        else
+            warn "Hack Nerd Font extraction failed — continuing setup."
+        fi
+
+        if command -v fc-cache &>/dev/null; then
+            fc-cache -f "$NERD_FONT_DIR" >/dev/null 2>&1 ||
+                warn "Could not refresh the font cache — continuing setup."
+        else
+            warn "fc-cache not found; the font is installed but its cache was not refreshed."
+        fi
+
+        rm -rf -- "$NERD_FONT_TMP_DIR"
+    fi
+
+    unset NERD_FONT_URL NERD_FONT_DIR NERD_FONT_TMP_DIR NERD_FONT_ARCHIVE
+fi
 
 # ══════════════════════════════════════════════════
 #  ZSH PATH
@@ -273,7 +318,7 @@ _jason_agnoster_precmd() {
 prompt_timestamp() {
   local timestamp
   timestamp=$(date +%H:%M:%S)
-  [[ -n $_JASON_AGNOSTER_DURATION ]] && timestamp+=" · took $_JASON_AGNOSTER_DURATION"
+  [[ -n $_JASON_AGNOSTER_DURATION ]] && timestamp+=" · $_JASON_AGNOSTER_DURATION"
   prompt_segment white black "$timestamp"
 }
 
@@ -439,7 +484,7 @@ function prompt_virtualenv {
 function prompt_timestamp {
   local timestamp
   timestamp=$(date +%H:%M:%S)
-  [[ -n $_JASON_AGNOSTER_DURATION ]] && timestamp+=" · took $_JASON_AGNOSTER_DURATION"
+  [[ -n $_JASON_AGNOSTER_DURATION ]] && timestamp+=" · $_JASON_AGNOSTER_DURATION"
   prompt_segment white black "$timestamp"
 }
 
@@ -571,6 +616,9 @@ echo "  Shell:      ${SHELL_TYPE}"
 echo "  Config:     ~/.${SHELL_TYPE}rc"
 echo "  pixi:       $HOME/.pixi/bin/pixi"
 echo "  Theme:      agnoster-timestamp-newline"
+if [[ "$(uname -s)" == "Linux" ]]; then
+    echo "  Font:       Hack Nerd Font (latest release)"
+fi
 echo
 echo "  ⚠ Agnoster needs a Powerline-patched font:"
 echo "     https://github.com/powerline/fonts"

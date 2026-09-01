@@ -10,6 +10,11 @@ colors, Powerline separators, and two-line layout. The white timing segment
 shows the current time and adds a compact `took 7s` duration after commands
 lasting at least one second.
 
+On Linux, the setup always attempts to download the latest `Hack.zip` from the
+official Nerd Fonts release and installs its TTF files under
+`~/.local/share/fonts/Hack`. Font installation problems produce a warning but
+do not stop the rest of the setup.
+
 The setup script can optionally configure the WakaTime client to submit
 activity to a self-hosted Wakapi instance only. It prompts for the Wakapi API
 URL and API key without displaying the key, then writes them only to
