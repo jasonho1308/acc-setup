@@ -5,7 +5,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/jasonho1308/acc-setup/main/s
 ```
 
 The script installs [`lsd`](https://github.com/lsd-rs/lsd) through pixi and
-configures `ls` and `ll` (plus `la`) to use its automatic colour output.
+configures `ls` and `ll` (plus `la`) to use its automatic colour output. It
+also disables Pixi's and, when available, Conda's built-in PS1 prefixes so the
+active environment appears only once in the theme's colored segment.
 
 The generated Zsh and Bash configurations both use the custom
 `agnoster-timestamp-newline` theme. They share the same colored environment,

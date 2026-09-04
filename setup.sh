@@ -130,6 +130,7 @@ else
 fi
 echo "   • Install pixi"
 echo "   • Install lsd and use it for colourised ls/ll output"
+echo "   • Prevent Pixi and Conda from adding duplicate prompt prefixes"
 echo "   • Offer to install the latest Hack Nerd Font (Linux)"
 echo "   • Merge managed settings into ~/.${SHELL_TYPE}rc (existing content is preserved)"
 echo "   • NO sudo, NO packages, NO chsh"
@@ -158,7 +159,30 @@ else
     ok "lsd installed."
 fi
 
-# ── 1.5. Hack Nerd Font (optional on Linux) ───────
+# ── 1.5. Environment-manager prompt prefixes ──────
+# The custom theme renders environments in its own colored segment, so prevent
+# Pixi and Conda from also prepending plain-text environment names to PS1.
+if pixi config list 2>/dev/null | grep -A1 '^\[shell\]$' | grep -qx 'change-ps1 = false'; then
+    ok "Pixi's duplicate prompt prefix is already disabled."
+elif pixi config set --global shell.change-ps1 false >/dev/null; then
+    ok "Pixi's duplicate prompt prefix disabled."
+else
+    warn "Could not disable Pixi's built-in prompt prefix."
+fi
+
+if command -v conda &>/dev/null; then
+    if [[ "$(conda config --show changeps1 2>/dev/null || true)" == "changeps1: False" ]]; then
+        ok "Conda's duplicate prompt prefix is already disabled."
+    elif conda config --set changeps1 false >/dev/null; then
+        ok "Conda's duplicate prompt prefix disabled."
+    else
+        warn "Could not disable Conda's built-in prompt prefix."
+    fi
+else
+    info "Conda not found — skipping its prompt-prefix setting."
+fi
+
+# ── 1.75. Hack Nerd Font (optional on Linux) ──────
 NERD_FONT_INSTALLED=false
 if [[ "$(uname -s)" == "Linux" ]]; then
     echo
