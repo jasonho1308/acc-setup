@@ -4,6 +4,9 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/jasonho1308/acc-setup/main/setup.sh)
 ```
 
+The script installs [`lsd`](https://github.com/lsd-rs/lsd) through pixi and
+configures `ls` and `ll` (plus `la`) to use its automatic colour output.
+
 The generated Zsh and Bash configurations both use the custom
 `agnoster-timestamp-newline` theme. They share the Mac Agnoster segment order,
 colors, Powerline separators, and two-line layout. The white timing segment

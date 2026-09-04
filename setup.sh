@@ -52,6 +52,7 @@ else
     echo "   • Install agnoster-timestamp-newline theme"
 fi
 echo "   • Install pixi"
+echo "   • Install lsd and use it for colourised ls/ll output"
 echo "   • Offer to install the latest Hack Nerd Font (Linux)"
 echo "   • Write shell config (~/.${SHELL_TYPE}rc)"
 echo "   • NO sudo, NO packages, NO chsh"
@@ -70,6 +71,15 @@ else
 fi
 # Ensure pixi is available right now
 export PATH="$HOME/.pixi/bin:$PATH"
+
+# ── 1.25. lsd ─────────────────────────────────────
+if command -v lsd &>/dev/null; then
+    ok "lsd already installed ($(lsd --version 2>/dev/null || echo '?'))"
+else
+    info "Installing lsd with pixi..."
+    pixi global install lsd-rust
+    ok "lsd installed."
+fi
 
 # ── 1.5. Hack Nerd Font (optional on Linux) ───────
 NERD_FONT_INSTALLED=false
@@ -376,8 +386,9 @@ source "$ZSH/oh-my-zsh.sh"
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # aliases
-alias ll="ls -lahF"
-alias la="ls -A"
+alias ls="lsd --color=auto"
+alias ll="lsd -lahF --color=auto"
+alias la="lsd -A --color=auto"
 alias ..="cd .."
 alias ...="cd ../.."
 
@@ -561,8 +572,9 @@ source "$OSH/oh-my-bash.sh"
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # aliases
-alias ll="ls -lahF"
-alias la="ls -A"
+alias ls="lsd --color=auto"
+alias ll="lsd -lahF --color=auto"
+alias la="lsd -A --color=auto"
 alias ..="cd .."
 alias ...="cd ../.."
 
@@ -627,6 +639,7 @@ echo
 echo "  Shell:      ${SHELL_TYPE}"
 echo "  Config:     ~/.${SHELL_TYPE}rc"
 echo "  pixi:       $HOME/.pixi/bin/pixi"
+echo "  ls/ll:      lsd with automatic colour output"
 echo "  Theme:      agnoster-timestamp-newline"
 if [[ "$NERD_FONT_INSTALLED" == true ]]; then
     echo "  Font:       Hack Nerd Font (latest release)"
