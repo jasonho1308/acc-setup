@@ -4,10 +4,16 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/jasonho1308/acc-setup/main/setup.sh)
 ```
 
-The script installs [`lsd`](https://github.com/lsd-rs/lsd) through pixi and
-configures `ls` and `ll` (plus `la`) to use its automatic colour output. It
-also disables Pixi's and, when available, Conda's built-in PS1 prefixes so the
-active environment appears only once in the theme's colored segment.
+At the first prompt, enter `a` to approve every action, `y` to be asked before
+each action, or `n` to abort. “Run all” still asks for required Wakapi details
+such as the API URL and key.
+
+The script can install [`lsd`](https://github.com/lsd-rs/lsd) through pixi and
+configure `ls` and `ll` (plus `la`) to use its automatic colour output. If
+pixi or `lsd` is skipped or unavailable, the shell configuration uses the
+system `ls` command instead. It can also disable Pixi's and, when available,
+Conda's built-in PS1 prefixes so the active environment appears only once in
+the theme's colored segment.
 
 The generated Zsh and Bash configurations both use the custom
 `agnoster-timestamp-newline` theme. They share the same colored environment,

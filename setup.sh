@@ -14,6 +14,15 @@ ok()    { echo -e "${GREEN}✓${NC} $*"; }
 warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
 err()   { echo -e "${RED}✗${NC} $*"; exit 1; }
 
+RUN_ALL=false
+confirm_action() {
+    local prompt=$1 reply=''
+
+    [[ "$RUN_ALL" == true ]] && return 0
+    read -rp "$prompt [y/N] " reply
+    [[ "$reply" =~ ^[Yy]$ ]]
+}
+
 update_managed_shell_block() {
     local config_file=$1
     local shell_name=$2
@@ -136,44 +145,76 @@ echo "   • Merge managed settings into ~/.${SHELL_TYPE}rc (existing content is
 echo "   • NO sudo, NO packages, NO chsh"
 echo "============================================"
 echo
-read -rp "Continue? [y/N] " REPLY
-[[ "$REPLY" =~ ^[Yy]$ ]] || { info "Aborted."; exit 0; }
+echo " Choose how to proceed:"
+echo "   A • Run all actions without further yes/no prompts"
+echo "   Y • Ask for confirmation before each action"
+echo "   N • Abort"
+read -rp "Choice [A/y/N] " REPLY
+case "$REPLY" in
+    [Aa]) RUN_ALL=true ;;
+    [Yy]) ;;
+    *) info "Aborted."; exit 0 ;;
+esac
 
 # ── 1. pixi (shell-agnostic, works on any Linux) ──
+PIXI_AVAILABLE=false
 if command -v pixi &>/dev/null; then
+    PIXI_AVAILABLE=true
     ok "pixi already installed ($(pixi --version 2>/dev/null || echo '?'))"
-else
+elif confirm_action "Install pixi?"; then
     info "Installing pixi..."
-    $DOWNLOAD https://pixi.sh/install.sh | bash
-    ok "pixi installed."
+    if $DOWNLOAD https://pixi.sh/install.sh | bash; then
+        ok "Pixi installer completed."
+    else
+        warn "Could not install pixi — continuing without it."
+    fi
+else
+    info "Skipping pixi installation."
 fi
-# Ensure pixi is available right now
+
+# Ensure a newly installed pixi is available right now.
 export PATH="$HOME/.pixi/bin:$PATH"
+command -v pixi &>/dev/null && PIXI_AVAILABLE=true
 
 # ── 1.25. lsd ─────────────────────────────────────
+LSD_AVAILABLE=false
 if command -v lsd &>/dev/null; then
+    LSD_AVAILABLE=true
     ok "lsd already installed ($(lsd --version 2>/dev/null || echo '?'))"
-else
+elif [[ "$PIXI_AVAILABLE" != true ]]; then
+    info "Skipping lsd because pixi is unavailable."
+elif confirm_action "Install lsd with pixi?"; then
     info "Installing lsd with pixi..."
-    if pixi global install lsd-rust; then
+    if pixi global install lsd-rust && command -v lsd &>/dev/null; then
+        LSD_AVAILABLE=true
         ok "lsd installed."
     else
-        warn "Could not install lsd — continuing without it."
+        warn "Could not install lsd — continuing with the system ls command."
     fi
+else
+    info "Skipping lsd installation; system ls will be used."
 fi
 
 # ── 1.5. Environment-manager prompt prefixes ──────
 # The custom theme renders environments in its own colored segment, so prevent
 # Pixi and Conda from also prepending plain-text environment names to PS1.
-if pixi config list 2>/dev/null | grep -A1 '^\[shell\]$' | grep -qx 'change-ps1 = false'; then
-    ok "Pixi's duplicate prompt prefix is already disabled."
-elif pixi config set --global shell.change-ps1 false >/dev/null; then
-    ok "Pixi's duplicate prompt prefix disabled."
+if [[ "$PIXI_AVAILABLE" != true ]]; then
+    info "Pixi not found — skipping its prompt-prefix setting."
+elif confirm_action "Disable Pixi's duplicate prompt prefix?"; then
+    if pixi config list 2>/dev/null | grep -A1 '^\[shell\]$' | grep -qx 'change-ps1 = false'; then
+        ok "Pixi's duplicate prompt prefix is already disabled."
+    elif pixi config set --global shell.change-ps1 false >/dev/null; then
+        ok "Pixi's duplicate prompt prefix disabled."
+    else
+        warn "Could not disable Pixi's built-in prompt prefix."
+    fi
 else
-    warn "Could not disable Pixi's built-in prompt prefix."
+    info "Leaving Pixi's prompt-prefix setting unchanged."
 fi
 
-if command -v conda &>/dev/null; then
+if ! command -v conda &>/dev/null; then
+    info "Conda not found — skipping its prompt-prefix setting."
+elif confirm_action "Disable Conda's duplicate prompt prefix?"; then
     if [[ "$(conda config --show changeps1 2>/dev/null || true)" == "changeps1: False" ]]; then
         ok "Conda's duplicate prompt prefix is already disabled."
     elif conda config --set changeps1 false >/dev/null; then
@@ -182,15 +223,14 @@ if command -v conda &>/dev/null; then
         warn "Could not disable Conda's built-in prompt prefix."
     fi
 else
-    info "Conda not found — skipping its prompt-prefix setting."
+    info "Leaving Conda's prompt-prefix setting unchanged."
 fi
 
 # ── 1.75. Hack Nerd Font (optional on Linux) ──────
 NERD_FONT_INSTALLED=false
 if [[ "$(uname -s)" == "Linux" ]]; then
     echo
-    read -rp "Install the latest Hack Nerd Font? [y/N] " NERD_FONT_REPLY
-    if [[ "$NERD_FONT_REPLY" =~ ^[Yy]$ ]]; then
+    if confirm_action "Install the latest Hack Nerd Font?"; then
         NERD_FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip"
         NERD_FONT_DIR="$HOME/.local/share/fonts/Hack"
         NERD_FONT_TMP_DIR="$(mktemp -d 2>/dev/null || true)"
@@ -238,8 +278,13 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     else
         info "Skipping Hack Nerd Font installation."
     fi
-    unset NERD_FONT_REPLY
 fi
+
+# ══════════════════════════════════════════════════
+#  SHELL CONFIGURATION
+# ══════════════════════════════════════════════════
+SHELL_CONFIGURED=false
+if confirm_action "Configure ${SHELL_TYPE}, its framework, theme, and rc file?"; then
 
 # ══════════════════════════════════════════════════
 #  ZSH PATH
@@ -500,9 +545,14 @@ export VIRTUAL_ENV_DISABLE_PROMPT=1
 export CONDA_CHANGEPS1=false
 
 # aliases
-alias ls="lsd --color=auto"
-alias ll="lsd -lahF --color=auto"
-alias la="lsd -A --color=auto"
+if command -v lsd >/dev/null 2>&1; then
+    alias ls="lsd --color=auto"
+    alias ll="lsd -lahF --color=auto"
+    alias la="lsd -A --color=auto"
+else
+    alias ll="ls -lahF --color=auto"
+    alias la="ls -A --color=auto"
+fi
 alias ..="cd .."
 alias ...="cd ../.."
 
@@ -706,9 +756,14 @@ export VIRTUAL_ENV_DISABLE_PROMPT=1
 export CONDA_CHANGEPS1=false
 
 # aliases
-alias ls="lsd --color=auto"
-alias ll="lsd -lahF --color=auto"
-alias la="lsd -A --color=auto"
+if command -v lsd >/dev/null 2>&1; then
+    alias ls="lsd --color=auto"
+    alias ll="lsd -lahF --color=auto"
+    alias la="lsd -A --color=auto"
+else
+    alias ll="ls -lahF --color=auto"
+    alias la="ls -A --color=auto"
+fi
 alias ..="cd .."
 alias ...="cd ../.."
 
@@ -723,11 +778,14 @@ HISTCONTROL=ignoredups
 export PATH="$HOME/.local/bin:$PATH"
 BASHRC_EOF
 fi
+    SHELL_CONFIGURED=true
+else
+    info "Skipping shell framework, theme, and rc configuration."
+fi
 
 # ── 3. Wakapi ─────────────────────────────────────
 echo
-read -rp "Configure Wakapi tracking? [y/N] " WAKAPI_REPLY
-if [[ "$WAKAPI_REPLY" =~ ^[Yy]$ ]]; then
+if confirm_action "Configure Wakapi tracking?"; then
     read -rp "Wakapi API URL (e.g. https://wakapi.example.com/api): " WAKAPI_URL
     read -rsp "Wakapi API key (hidden): " WAKAPI_API_KEY
     echo
@@ -757,10 +815,12 @@ if ! command -v git &>/dev/null; then
     warn "git not found — install Xcode CLT (xcode-select --install) or 'sudo apt install git', then re-run for git config."
 elif [[ -f "$HOME/.gitconfig" ]]; then
     ok "~/.gitconfig already exists, skipping."
-else
+elif confirm_action "Configure the global Git name and email?"; then
     git config --global user.name "$GIT_NAME"
     git config --global user.email "$GIT_EMAIL"
     ok "Git user configured: $GIT_NAME <$GIT_EMAIL>"
+else
+    info "Skipping global Git configuration."
 fi
 
 # ── 5. Done ───────────────────────────────────────
@@ -770,21 +830,35 @@ echo -e "${GREEN}  Setup complete!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo
 echo "  Shell:      ${SHELL_TYPE}"
-echo "  Config:     ~/.${SHELL_TYPE}rc"
-echo "  pixi:       $HOME/.pixi/bin/pixi"
-echo "  ls/ll:      lsd with automatic colour output"
-echo "  Theme:      agnoster-timestamp-newline"
+if [[ "$SHELL_CONFIGURED" == true ]]; then
+    echo "  Config:     ~/.${SHELL_TYPE}rc"
+    echo "  Theme:      agnoster-timestamp-newline"
+else
+    echo "  Config:     skipped"
+fi
+if [[ "$PIXI_AVAILABLE" == true ]]; then
+    echo "  pixi:       $(command -v pixi)"
+else
+    echo "  pixi:       unavailable or skipped"
+fi
+if [[ "$LSD_AVAILABLE" == true ]]; then
+    echo "  ls/ll:      lsd with automatic colour output"
+else
+    echo "  ls/ll:      system ls"
+fi
 if [[ "$NERD_FONT_INSTALLED" == true ]]; then
     echo "  Font:       Hack Nerd Font (latest release)"
 fi
 echo
 echo "  ⚠ Agnoster needs a Powerline-patched font:"
 echo "     https://github.com/powerline/fonts"
-echo
-echo "  To see changes now:"
-if [[ "$SHELL_TYPE" == "zsh" ]]; then
-    echo "    source ~/.zshrc   # or just run: zsh"
-else
-    echo "    source ~/.bashrc  # or: exec bash"
+if [[ "$SHELL_CONFIGURED" == true ]]; then
+    echo
+    echo "  To see changes now:"
+    if [[ "$SHELL_TYPE" == "zsh" ]]; then
+        echo "    source ~/.zshrc   # or just run: zsh"
+    else
+        echo "    source ~/.bashrc  # or: exec bash"
+    fi
 fi
 echo
