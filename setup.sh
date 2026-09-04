@@ -14,6 +14,83 @@ ok()    { echo -e "${GREEN}✓${NC} $*"; }
 warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
 err()   { echo -e "${RED}✗${NC} $*"; exit 1; }
 
+update_managed_shell_block() {
+    local config_file=$1
+    local shell_name=$2
+    local start_marker="# >>> Jason's terminal setup (${shell_name}) >>>"
+    local end_marker="# <<< Jason's terminal setup (${shell_name}) <<<"
+    local block_file output_file backup_file input_file=/dev/null
+    local start_count=0 end_count=0 start_line=0 end_line=0
+
+    block_file=$(mktemp)
+    output_file=$(mktemp)
+    {
+        printf '%s\n' "$start_marker"
+        cat
+        printf '%s\n' "$end_marker"
+    } > "$block_file"
+
+    if [[ -f "$config_file" ]]; then
+        input_file=$config_file
+        start_count=$(grep -Fxc "$start_marker" "$config_file" || true)
+        end_count=$(grep -Fxc "$end_marker" "$config_file" || true)
+        if [[ "$start_count" -eq 1 && "$end_count" -eq 1 ]]; then
+            start_line=$(grep -Fn "$start_marker" "$config_file" | cut -d: -f1)
+            end_line=$(grep -Fn "$end_marker" "$config_file" | cut -d: -f1)
+        fi
+    fi
+
+    if [[ "$start_count" -ne "$end_count" || "$start_count" -gt 1 ||
+          ( "$start_count" -eq 1 && "$start_line" -ge "$end_line" ) ]]; then
+        rm -f -- "$block_file" "$output_file"
+        err "Malformed Jason setup markers in $config_file; leaving it unchanged."
+    fi
+
+    awk -v start="$start_marker" -v end="$end_marker" -v block="$block_file" '
+        function print_block(  line) {
+            while ((getline line < block) > 0) print line
+            close(block)
+        }
+        $0 == start {
+            if (!inserted) {
+                print_block()
+                inserted = 1
+            }
+            managed = 1
+            next
+        }
+        managed && $0 == end {
+            managed = 0
+            next
+        }
+        !managed { print }
+        END {
+            if (!inserted) {
+                if (NR > 0) print ""
+                print_block()
+            }
+        }
+    ' "$input_file" > "$output_file"
+
+    if [[ -f "$config_file" ]] && cmp -s "$config_file" "$output_file"; then
+        rm -f -- "$block_file" "$output_file"
+        ok "$config_file already contains the current setup block."
+        return
+    fi
+
+    if [[ -f "$config_file" ]]; then
+        backup_file=$(mktemp "${config_file}.backup.$(date +%s).XXXXXX")
+        cp -p -- "$config_file" "$backup_file"
+        info "Existing $config_file backed up to $backup_file."
+    else
+        mkdir -p -- "$(dirname "$config_file")"
+    fi
+
+    cat "$output_file" > "$config_file"
+    rm -f -- "$block_file" "$output_file"
+    ok "$config_file updated without changing content outside the managed block."
+}
+
 # ── 0. Detect what we're working with ──────────────
 echo "============================================"
 echo " Jason's Terminal Setup"
@@ -54,7 +131,7 @@ fi
 echo "   • Install pixi"
 echo "   • Install lsd and use it for colourised ls/ll output"
 echo "   • Offer to install the latest Hack Nerd Font (Linux)"
-echo "   • Write shell config (~/.${SHELL_TYPE}rc)"
+echo "   • Merge managed settings into ~/.${SHELL_TYPE}rc (existing content is preserved)"
 echo "   • NO sudo, NO packages, NO chsh"
 echo "============================================"
 echo
@@ -199,9 +276,10 @@ prompt_end() {
 }
 
 prompt_context() {
-  if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
-    prompt_segment black default "%(!.%{%F{yellow}%}.)$USER@%m"
-  fi
+  local user_name=${USER:-$(id -un)}
+  local machine_name=${HOST:-$(hostname)}
+  machine_name=${machine_name%%.*}
+  prompt_segment black default "%(!.%{%F{yellow}%}.)${user_name}@${machine_name}"
 }
 
 prompt_git() {
@@ -276,11 +354,18 @@ prompt_dir() {
   prompt_segment blue black '%~'
 }
 
-prompt_virtualenv() {
-  local virtualenv_path="$VIRTUAL_ENV"
-  if [[ -n $virtualenv_path && -n $VIRTUAL_ENV_DISABLE_PROMPT ]]; then
-    prompt_segment blue black "(`basename $virtualenv_path`)"
+prompt_environment() {
+  local environment_name=''
+
+  if [[ -n ${PIXI_ENVIRONMENT_NAME:-} ]]; then
+    environment_name="pixi:${PIXI_ENVIRONMENT_NAME}"
+  elif [[ -n ${CONDA_DEFAULT_ENV:-} ]]; then
+    environment_name="conda:${CONDA_DEFAULT_ENV}"
+  elif [[ -n ${VIRTUAL_ENV:-} ]]; then
+    environment_name="venv:$(basename "$VIRTUAL_ENV")"
   fi
+
+  [[ -n $environment_name ]] && prompt_segment magenta black "$environment_name"
 }
 
 prompt_status() {
@@ -347,7 +432,7 @@ prompt_timestamp() {
 build_prompt() {
   RETVAL=$_JASON_AGNOSTER_RETVAL
   prompt_status
-  prompt_virtualenv
+  prompt_environment
   prompt_context
   prompt_timestamp
   prompt_dir
@@ -369,21 +454,23 @@ THEME_EOF
     ok "agnoster-timestamp-newline theme installed."
 
     # ── 2c. .zshrc ─────────────────────────────────
-    # Back up if not ours
-    if [[ -f "$HOME/.zshrc" ]] && ! grep -q "# Jason's" "$HOME/.zshrc" 2>/dev/null; then
-        cp "$HOME/.zshrc" "$HOME/.zshrc.backup.$(date +%s)"
-        info "Existing .zshrc backed up."
-    fi
-
-    cat > "$HOME/.zshrc" << 'ZSHRC_EOF'
-# ── Jason's zshrc ────────────────────────────────
+    update_managed_shell_block "$HOME/.zshrc" zsh << 'ZSHRC_EOF'
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="agnoster-timestamp-newline"
-plugins=(git)
-source "$ZSH/oh-my-zsh.sh"
+typeset -ga plugins
+(( ${plugins[(Ie)git]} )) || plugins+=(git)
 
-# pixi
+if (( $+functions[_omz_source] )); then
+    (( $+functions[parse_git_dirty] )) || _omz_source "plugins/git/git.plugin.zsh"
+    source "$ZSH/custom/themes/agnoster-timestamp-newline.zsh-theme"
+else
+    source "$ZSH/oh-my-zsh.sh"
+fi
+
+# pixi and environment prompt handling
 export PATH="$HOME/.pixi/bin:$PATH"
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+export CONDA_CHANGEPS1=false
 
 # aliases
 alias ls="lsd --color=auto"
@@ -403,7 +490,6 @@ setopt HIST_IGNORE_DUPS SHARE_HISTORY
 
 export PATH="$HOME/.local/bin:$PATH"
 ZSHRC_EOF
-    ok "~/.zshrc written."
 
 # ══════════════════════════════════════════════════
 #  BASH PATH
@@ -497,11 +583,25 @@ _jason_agnoster_has_hook _jason_agnoster_preexec "${preexec_functions[@]}" ||
 _jason_agnoster_has_hook _jason_agnoster_precmd "${precmd_functions[@]}" ||
   precmd_functions+=(_jason_agnoster_precmd)
 
-function prompt_virtualenv {
-  local virtualenv_path=${VIRTUAL_ENV:-}
-  if [[ -n $virtualenv_path && -n ${VIRTUAL_ENV_DISABLE_PROMPT:-} ]]; then
-    prompt_segment blue black "($(basename "$virtualenv_path"))"
+function prompt_environment {
+  local environment_name=''
+
+  if [[ -n ${PIXI_ENVIRONMENT_NAME:-} ]]; then
+    environment_name="pixi:${PIXI_ENVIRONMENT_NAME}"
+  elif [[ -n ${CONDA_DEFAULT_ENV:-} ]]; then
+    environment_name="conda:${CONDA_DEFAULT_ENV}"
+  elif [[ -n ${VIRTUAL_ENV:-} ]]; then
+    environment_name="venv:$(basename "$VIRTUAL_ENV")"
   fi
+
+  [[ -n $environment_name ]] && prompt_segment magenta black "$environment_name"
+}
+
+function prompt_context {
+  local user_name=${USER:-$(id -un)}
+  local machine_name=${HOSTNAME:-$(hostname)}
+  machine_name=${machine_name%%.*}
+  prompt_segment black default "${user_name}@${machine_name}"
 }
 
 function prompt_timestamp {
@@ -531,8 +631,8 @@ function prompt_newline {
 
 function build_prompt {
   prompt_status
-  prompt_virtualenv
-  [[ -z ${AG_NO_CONTEXT+x} ]] && prompt_context
+  prompt_environment
+  prompt_context
   prompt_timestamp
   prompt_dir
   prompt_git
@@ -556,20 +656,27 @@ BASH_THEME_EOF
     ok "agnoster-timestamp-newline theme installed."
 
     # ── 2c. .bashrc ───────────────────────────────
-    if [[ -f "$HOME/.bashrc" ]] && ! grep -q "# Jason's" "$HOME/.bashrc" 2>/dev/null; then
-        cp "$HOME/.bashrc" "$HOME/.bashrc.backup.$(date +%s)"
-        info "Existing .bashrc backed up."
-    fi
-
-    cat > "$HOME/.bashrc" << 'BASHRC_EOF'
-# ── Jason's bashrc ───────────────────────────────
+    update_managed_shell_block "$HOME/.bashrc" bash << 'BASHRC_EOF'
 export OSH="$HOME/.oh-my-bash"
 OSH_THEME="agnoster-timestamp-newline"
-plugins=(git bash-preexec)
-source "$OSH/oh-my-bash.sh"
 
-# pixi
+if [[ $(declare -p plugins 2>/dev/null) != "declare -a"* ]]; then
+    plugins=(${plugins:-})
+fi
+[[ " ${plugins[*]} " == *" git "* ]] || plugins+=(git)
+[[ " ${plugins[*]} " == *" bash-preexec "* ]] || plugins+=(bash-preexec)
+
+if declare -F _omb_module_require_theme >/dev/null; then
+    _omb_module_require_plugin git bash-preexec
+    _omb_module_require_theme agnoster-timestamp-newline
+else
+    source "$OSH/oh-my-bash.sh"
+fi
+
+# pixi and environment prompt handling
 export PATH="$HOME/.pixi/bin:$PATH"
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+export CONDA_CHANGEPS1=false
 
 # aliases
 alias ls="lsd --color=auto"
@@ -588,7 +695,6 @@ HISTCONTROL=ignoredups
 
 export PATH="$HOME/.local/bin:$PATH"
 BASHRC_EOF
-    ok "~/.bashrc written."
 fi
 
 # ── 3. Wakapi ─────────────────────────────────────
