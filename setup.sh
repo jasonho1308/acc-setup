@@ -155,8 +155,11 @@ if command -v lsd &>/dev/null; then
     ok "lsd already installed ($(lsd --version 2>/dev/null || echo '?'))"
 else
     info "Installing lsd with pixi..."
-    pixi global install lsd-rust
-    ok "lsd installed."
+    if pixi global install lsd-rust; then
+        ok "lsd installed."
+    else
+        warn "Could not install lsd — continuing without it."
+    fi
 fi
 
 # ── 1.5. Environment-manager prompt prefixes ──────
